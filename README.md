@@ -1,34 +1,27 @@
-# M.I.B Messenger (Message In Black)
+# MIB Chat Dark - Clone WhatsApp Admin Only
 
-Application de messagerie élégante avec chat et appels WebRTC.
+Application de messagerie moderne avec Next.js, Tailwind CSS et LiveKit pour les appels.
 
-## 🚀 Installation Locale
+## Fonctionnalités
+- **Mode Sombre** : Design inspiré de WhatsApp Web Dark.
+- **Contrôle Admin** : Seul l'administrateur peut ajouter ou supprimer des contacts.
+- **Messagerie** : Chat en temps réel (Prêt pour Supabase).
+- **Appels & Vidéo** : Intégration LiveKit pour une qualité professionnelle.
 
-1. **Serveur (Backend)** :
-   ```bash
-   cd server
-   npm install
-   npm start
+## Installation
+1. `npm install`
+2. Configurez vos variables d'environnement dans `.env.local` :
+   ```env
+   NEXT_PUBLIC_LIVEKIT_URL=wss://votre-url-livekit
+   LIVEKIT_API_KEY=votre-cle
+   LIVEKIT_API_SECRET=votre-secret
    ```
+3. `npm run dev`
 
-2. **Client (Frontend)** :
-   ```bash
-   cd client
-   npm install
-   npm start
-   ```
+## Déploiement
+- **GitHub** : Poussez ce code sur votre repo `MIB`.
+- **Render** : Connectez le repo, utilisez `npm run build` and `npm start`.
+- **Netlify** : Idem, configurez les variables d'environnement dans le dashboard.
 
-## 🌍 Déploiement
-
-### Frontend (Netlify)
-1. Allez sur Netlify.
-2. Connectez votre repo GitHub ou glissez le dossier `client/build` (après avoir fait `npm run build`).
-
-### Backend (Render / Railway)
-1. Créez un nouveau "Web Service".
-2. Connectez votre repo et pointez vers le dossier `server`.
-3. Assurez-vous de mettre à jour l'URL du socket dans `App.js` avec l'URL de votre serveur déployé.
-
-## 📁 Structure du projet
-- `client/` : React + Tailwind CSS + PeerJS
-- `server/` : Node.js + Socket.io + PeerServer
+## Restrictions Admin
+La logique est gérée dans `src/app/page.tsx`. Pour la production, connectez `isAdmin` à votre service d'authentification (ex: Supabase Auth metadata).
