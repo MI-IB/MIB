@@ -68,6 +68,12 @@ io.on('connection', (socket) => {
       });
       console.log(`Agent ${agentName} connecté (Admin: ${isAdmin})`);
       
+      // Envoyer la liste de tous les agents pour le statut en ligne/hors ligne
+      io.emit('all_agents', Object.keys(AUTHORIZED_AGENTS).map(id => ({
+        agentId: id,
+        username: AUTHORIZED_AGENTS[id]
+      })));
+      
       io.to(data.room).emit('update_user_list', Array.from(users.values()));
     } else {
       console.log(`Connexion refusée: ID=${data.agentId} inconnu`);
@@ -92,6 +98,12 @@ io.on('connection', (socket) => {
       AUTHORIZED_AGENTS[newId] = data.name;
       saveAgents();
       socket.emit('invite_created', { id: newId, name: data.name });
+      
+      // Mettre à jour la liste pour tous
+      io.emit('all_agents', Object.keys(AUTHORIZED_AGENTS).map(id => ({
+        agentId: id,
+        username: AUTHORIZED_AGENTS[id]
+      })));
     }
   });
 
@@ -102,6 +114,12 @@ io.on('connection', (socket) => {
       if (data.agentId !== "KARIM-ADMIN") {
         delete AUTHORIZED_AGENTS[data.agentId];
         saveAgents();
+        
+        // Mettre à jour la liste pour tous
+        io.emit('all_agents', Object.keys(AUTHORIZED_AGENTS).map(id => ({
+          agentId: id,
+          username: AUTHORIZED_AGENTS[id]
+        })));
         
         // Trouver et déconnecter l'agent s'il est en ligne
         for (const [sid, u] of users.entries()) {
