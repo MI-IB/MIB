@@ -1,25 +1,74 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import Peer from 'peerjs';
-import { Send, Phone, Video, User, Shield, Circle, LogIn } from 'lucide-react';
+import { Send, Phone, Video, User, Shield, Circle, LogIn, UserPlus, Copy, Check } from 'lucide-react';
 
 const socket = io.connect(process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001');
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [agentId, setAgentId] = useState('');
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
   const [room, setRoom] = useState('Général');
   const [message, setMessage] = useState('');
   const [chat, setChat] = useState([]);
-  const [activeUsers, setActiveUsers] = useState([]); // Ajout de l'état des utilisateurs actifs
+  const [activeUsers, setActiveUsers] = useState([]);
   const [myPeerId, setMyPeerId] = useState('');
   const [isCalling, setIsCalling] = useState(false);
   
+  // States pour les invitations
+  const [inviteName, setInviteName] = useState('');
+  const [lastInviteUrl, setLastInviteUrl] = useState('');
+  const [copied, setCopied] = useState(false);
+
   const myVideoRef = useRef();
   const remoteVideoRef = useRef();
   const peerRef = useRef();
+
+  useEffect(() => {
+    // 1. Vérifier si un ID est présent dans l'URL pour l'auto-connexion
+    const params = new URLSearchParams(window.location.search);
+    const idFromUrl = params.get('id');
+    if (idFromUrl) {
+      setAgentId(idFromUrl);
+      socket.emit('join_room', { room: 'Général', agentId: idFromUrl });
+    }
+
+    socket.on('auth_success', (data) => {
+      setUsername(data.username);
+      setIsAdmin(data.isAdmin);
+      setIsLoggedIn(true);
+      setError('');
+    });
+
+    socket.on('auth_error', (data) => {
+      setError(data.message);
+      setIsLoggedIn(false);
+    });
+
+    socket.on('invite_created', (data) => {
+      const url = `${window.location.origin}/?id=${data.id}`;
+      setLastInviteUrl(url);
+    });
+
+    socket.on('update_user_list', (users) => {
+      setActiveUsers(users);
+    });
+
+    socket.on('receive_message', (data) => {
+      setChat((prev) => [...prev, data]);
+    });
+
+    return () => {
+      socket.off('auth_success');
+      socket.off('auth_error');
+      socket.off('invite_created');
+      socket.off('update_user_list');
+      socket.off('receive_message');
+    };
+  }, []);
 
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -47,45 +96,30 @@ function App() {
 
     peerRef.current = peer;
 
-    socket.on('receive_message', (data) => {
-      setChat((prev) => [...prev, data]);
-    });
-
-    // Ecouter les mises à jour de la liste des utilisateurs
-    socket.on('update_user_list', (users) => {
-      setActiveUsers(users);
-    });
-
     return () => {
-      socket.off('receive_message');
-      socket.off('update_user_list');
       peer.destroy();
     };
   }, [isLoggedIn]);
-
-  useEffect(() => {
-    socket.on('auth_success', (data) => {
-      setUsername(data.username);
-      setIsLoggedIn(true);
-      setError('');
-    });
-
-    socket.on('auth_error', (data) => {
-      setError(data.message);
-      setIsLoggedIn(false);
-    });
-
-    return () => {
-      socket.off('auth_success');
-      socket.off('auth_error');
-    };
-  }, []);
 
   const handleLogin = (e) => {
     e.preventDefault();
     if (agentId.trim() !== "") {
       socket.emit('join_room', { room, agentId });
     }
+  };
+
+  const createInvite = (e) => {
+    e.preventDefault();
+    if (inviteName.trim() !== "") {
+      socket.emit('create_invite', { name: inviteName });
+      setInviteName('');
+    }
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(lastInviteUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const sendMessage = () => {
@@ -104,7 +138,7 @@ function App() {
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center p-6">
+      <div className="min-h-screen bg-black flex items-center justify-center p-6 text-zinc-300">
         <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-8 flex flex-col gap-8 shadow-2xl">
           <div className="flex flex-col items-center gap-4">
             <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.2)]">
@@ -141,24 +175,52 @@ function App() {
               <LogIn className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
           </form>
-
-          <div className="pt-4 border-t border-zinc-800 text-center">
-            <p className="text-[10px] text-zinc-600 uppercase tracking-widest">Connexion sécurisée bout-en-bout</p>
-          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black text-zinc-300 font-sans flex flex-col md:flex-row">
+    <div className="min-h-screen bg-black text-zinc-300 font-sans flex flex-col md:flex-row overflow-hidden">
       {/* Sidebar */}
-      <div className="w-full md:w-64 bg-zinc-900 border-r border-zinc-800 p-6 flex flex-col gap-8">
+      <div className="w-full md:w-80 bg-zinc-900 border-r border-zinc-800 p-6 flex flex-col gap-8 overflow-y-auto">
         <div className="flex items-center gap-3 text-white">
           <Shield className="w-8 h-8 text-zinc-400" />
           <h1 className="text-2xl font-bold tracking-tighter">M.I.B</h1>
         </div>
         
+        {/* Panel d'Invitation (ADMIN SEULEMENT) */}
+        {isAdmin && (
+          <div className="bg-zinc-800/50 p-4 rounded-2xl border border-zinc-800 flex flex-col gap-4">
+            <div className="flex items-center gap-2 text-white font-semibold text-sm">
+              <UserPlus className="w-4 h-4 text-zinc-400" />
+              Inviter un Agent
+            </div>
+            <form onSubmit={createInvite} className="flex gap-2">
+              <input 
+                type="text" 
+                placeholder="Nom..."
+                className="flex-1 bg-black border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-white"
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+              />
+              <button className="bg-white text-black text-[10px] font-bold px-3 py-2 rounded-lg hover:bg-zinc-200">GÉNÉRER</button>
+            </form>
+            
+            {lastInviteUrl && (
+              <div className="mt-2 flex flex-col gap-2 animate-in fade-in slide-in-from-top-2">
+                <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest">Lien généré :</p>
+                <div className="flex items-center gap-2 bg-black p-2 rounded-lg border border-zinc-700">
+                  <input readOnly value={lastInviteUrl} className="flex-1 bg-transparent text-[10px] truncate outline-none" />
+                  <button onClick={copyToClipboard} className="text-zinc-400 hover:text-white">
+                    {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex flex-col gap-4">
           <p className="text-xs uppercase tracking-widest text-zinc-500 font-semibold">Canaux</p>
           <button className="flex items-center gap-2 bg-zinc-800 text-white p-3 rounded-lg border border-zinc-700">
@@ -185,13 +247,13 @@ function App() {
           </div>
           <div>
             <p className="text-sm font-medium text-white">{username}</p>
-            <p className="text-xs text-zinc-500">ID: {agentId}</p>
+            <p className="text-xs text-zinc-500">ID: {agentId.slice(0, 8)}</p>
           </div>
         </div>
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col relative">
+      <div className="flex-1 flex flex-col relative bg-black">
         {/* Header */}
         <div className="h-20 border-b border-zinc-800 flex items-center justify-between px-8 bg-black/50 backdrop-blur-md sticky top-0 z-10">
           <div>
@@ -225,7 +287,7 @@ function App() {
         </div>
 
         {/* Input Area */}
-        <div className="p-6 bg-black">
+        <div className="p-6 bg-black border-t border-zinc-800">
           <div className="max-w-4xl mx-auto relative">
             <input 
               type="text" 
