@@ -33,19 +33,27 @@ io.on('connection', (socket) => {
     const agentName = AUTHORIZED_AGENTS[data.agentId];
     if (agentName) {
       socket.join(data.room);
-      users.set(socket.id, { username: agentName, agentId: data.agentId });
-      
-      // On répond au client qu'il est connecté
-      socket.emit('auth_success', { 
+      // On stocke aussi le peerId s'il est envoyé
+      users.set(socket.id, { 
         username: agentName, 
-        isAdmin: data.agentId === "KARIM-ADMIN" 
+        agentId: data.agentId, 
+        peerId: data.peerId 
       });
-
-      // Mise à jour de la liste
+      socket.emit('auth_success', { username: agentName, isAdmin: data.agentId === "KARIM-ADMIN" });
+      
       const roomUsers = Array.from(users.values());
       io.to(data.room).emit('update_user_list', roomUsers);
     } else {
-      socket.emit('auth_error', { message: "Lien ou ID invalide." });
+      socket.emit('auth_error', { message: "ID Agent invalide." });
+    }
+  });
+
+  // Mise à jour du PeerID quand PeerJS est prêt
+  socket.on('update_peer_id', (data) => {
+    const user = users.get(socket.id);
+    if (user) {
+      user.peerId = data.peerId;
+      io.emit('update_user_list', Array.from(users.values()));
     }
   });
 
