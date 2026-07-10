@@ -3,11 +3,13 @@ import io from 'socket.io-client';
 import Peer from 'peerjs';
 import { Send, Phone, Video, User, Shield, Circle, LogIn } from 'lucide-react';
 
-const socket = io.connect('http://localhost:3001');
+const socket = io.connect(process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001');
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [agentId, setAgentId] = useState('');
   const [username, setUsername] = useState('');
+  const [error, setError] = useState('');
   const [room, setRoom] = useState('Général');
   const [message, setMessage] = useState('');
   const [chat, setChat] = useState([]);
@@ -30,7 +32,6 @@ function App() {
 
     peer.on('open', (id) => {
       setMyPeerId(id);
-      socket.emit('join_room', { room, username });
     });
 
     peer.on('call', (call) => {
@@ -53,12 +54,30 @@ function App() {
       socket.off('receive_message');
       peer.destroy();
     };
-  }, [isLoggedIn, room, username]);
+  }, [isLoggedIn, room]);
+
+  useEffect(() => {
+    socket.on('auth_success', (data) => {
+      setUsername(data.username);
+      setIsLoggedIn(true);
+      setError('');
+    });
+
+    socket.on('auth_error', (data) => {
+      setError(data.message);
+      setIsLoggedIn(false);
+    });
+
+    return () => {
+      socket.off('auth_success');
+      socket.off('auth_error');
+    };
+  }, []);
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (username.trim() !== "") {
-      setIsLoggedIn(true);
+    if (agentId.trim() !== "") {
+      socket.emit('join_room', { room, agentId });
     }
   };
 
@@ -92,18 +111,19 @@ function App() {
 
           <form onSubmit={handleLogin} className="flex flex-col gap-6">
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-semibold text-zinc-500 uppercase tracking-widest ml-1">Nom d'agent</label>
+              <label className="text-xs font-semibold text-zinc-500 uppercase tracking-widest ml-1">Code d'Agent (ID)</label>
               <div className="relative">
                 <input 
                   type="text" 
-                  placeholder="ex: Agent Alpha" 
-                  className="w-full bg-black border border-zinc-800 rounded-xl py-4 px-12 text-white focus:outline-none focus:border-white transition-all"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="ex: ALPHA-01" 
+                  className={`w-full bg-black border ${error ? 'border-red-500' : 'border-zinc-800'} rounded-xl py-4 px-12 text-white focus:outline-none focus:border-white transition-all`}
+                  value={agentId}
+                  onChange={(e) => setAgentId(e.target.value)}
                   required
                 />
                 <User className="w-5 h-5 text-zinc-600 absolute left-4 top-1/2 -translate-y-1/2" />
               </div>
+              {error && <p className="text-red-500 text-[10px] uppercase font-bold mt-1 ml-1">{error}</p>}
             </div>
 
             <button 
