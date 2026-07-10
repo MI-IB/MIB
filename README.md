@@ -20,7 +20,7 @@ Application de messagerie moderne avec Next.js, Tailwind CSS et LiveKit pour les
 
 ## Déploiement
 - **GitHub** : Poussez ce code sur votre repo `MIB`.
-- **Render** : Connectez le repo, utilisez `npm run build` and `npm start`.
+- **Render** : Connectez le repo, utilisez `npm run build` et `npm start`.
 - **Netlify** : Idem, configurez les variables d'environnement dans le dashboard.
 
 ## Restrictions Admin
