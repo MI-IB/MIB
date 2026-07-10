@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import Peer from 'peerjs';
-import { Send, Phone, Video, User, Shield, Circle, LogIn, UserPlus, Copy, Check } from 'lucide-react';
+import { Send, Phone, Video, User, Shield, Circle, LogIn, UserPlus, Copy, Check, Trash2, Settings, X, Bell, Moon, LogOut } from 'lucide-react';
 
 const socket = io.connect(process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001');
 
@@ -17,6 +17,7 @@ function App() {
   const [activeUsers, setActiveUsers] = useState([]);
   const [myPeerId, setMyPeerId] = useState('');
   const [isCalling, setIsCalling] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   
   // States pour les invitations
   const [inviteName, setInviteName] = useState('');
@@ -61,23 +62,31 @@ function App() {
       setChat((prev) => [...prev, data]);
     });
 
+    socket.on('agent_deleted', (data) => {
+      if (isAdmin) {
+        setLastInviteUrl('');
+      }
+    });
+
     return () => {
       socket.off('auth_success');
       socket.off('auth_error');
       socket.off('invite_created');
       socket.off('update_user_list');
       socket.off('receive_message');
+      socket.off('agent_deleted');
     };
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!isLoggedIn) return;
 
+    // Configuration PeerJS
     const peer = new Peer(undefined, {
-      host: process.env.REACT_APP_PEER_HOST || 'localhost',
-      port: process.env.REACT_APP_PEER_PORT || 3001,
+      host: process.env.REACT_APP_PEER_HOST || window.location.hostname,
+      port: process.env.REACT_APP_PEER_PORT || (window.location.hostname === 'localhost' ? 3001 : (window.location.port || (window.location.protocol === 'https:' ? 443 : 80))),
       path: '/peerjs',
-      secure: process.env.REACT_APP_PEER_SECURE === 'true'
+      secure: window.location.protocol === 'https:' || process.env.REACT_APP_PEER_SECURE === 'true'
     });
 
     peer.on('open', (id) => {
@@ -93,6 +102,8 @@ function App() {
         call.on('stream', (remoteStream) => {
           remoteVideoRef.current.srcObject = remoteStream;
         });
+      }).catch(err => {
+        console.error("Failed to get local stream", err);
       });
     });
 
@@ -118,6 +129,41 @@ function App() {
     }
   };
 
+  const deleteAgent = (idToDelete) => {
+    if (window.confirm("Voulez-vous vraiment supprimer cet agent ?")) {
+      socket.emit('delete_agent', { agentId: idToDelete });
+    }
+  };
+
+  const stopCall = () => {
+    setIsCalling(false);
+    if (myVideoRef.current && myVideoRef.current.srcObject) {
+      myVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      myVideoRef.current.srcObject = null;
+    }
+    if (remoteVideoRef.current && remoteVideoRef.current.srcObject) {
+      remoteVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      remoteVideoRef.current.srcObject = null;
+    }
+  };
+
+  const startCall = (remotePeerId, withVideo = true) => {
+    setIsCalling(true);
+    navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true }).then((stream) => {
+      if (myVideoRef.current) myVideoRef.current.srcObject = stream;
+      const call = peerRef.current.call(remotePeerId, stream);
+      call.on('stream', (remoteStream) => {
+        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+      });
+      // Handle call close
+      call.on('close', stopCall);
+    }).catch(err => {
+      console.error("Failed to get local stream", err);
+      setIsCalling(false);
+      alert("Impossible d'accéder à la caméra/micro. Vérifiez les permissions.");
+    });
+  };
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(lastInviteUrl);
     setCopied(true);
@@ -136,17 +182,6 @@ function App() {
       setChat((prev) => [...prev, messageData]);
       setMessage('');
     }
-  };
-
-  const startCall = (remotePeerId) => {
-    setIsCalling(true);
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then((stream) => {
-      myVideoRef.current.srcObject = stream;
-      const call = peerRef.current.call(remotePeerId, stream);
-      call.on('stream', (remoteStream) => {
-        remoteVideoRef.current.srcObject = remoteStream;
-      });
-    });
   };
 
   if (!isLoggedIn) {
@@ -198,8 +233,9 @@ function App() {
       {/* Sidebar */}
       <div className="w-full md:w-80 bg-zinc-900 border-r border-zinc-800 p-6 flex flex-col gap-8 overflow-y-auto">
         <div className="flex items-center gap-3 text-white">
-          <Shield className="w-8 h-8 text-zinc-400" />
+          <Shield className={`w-8 h-8 ${isAdmin ? 'text-green-500' : 'text-zinc-400'}`} />
           <h1 className="text-2xl font-bold tracking-tighter">M.I.B</h1>
+          {isAdmin && <span className="text-[10px] bg-green-500/20 text-green-500 px-2 py-0.5 rounded border border-green-500/30 uppercase font-bold">Admin</span>}
         </div>
         
         {/* Panel d'Invitation (ADMIN SEULEMENT) */}
@@ -245,32 +281,71 @@ function App() {
         <div className="flex flex-col gap-4">
           <p className="text-xs uppercase tracking-widest text-zinc-500 font-semibold">Agents en ligne</p>
           <div className="flex flex-col gap-2">
+            {activeUsers.length <= 1 && (
+              <p className="text-[10px] text-zinc-600 italic px-1">Aucun autre agent en ligne</p>
+            )}
             {activeUsers.map((user, idx) => (
               <div key={idx} className="flex items-center justify-between text-sm text-zinc-400 p-1 group">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                  {user.username} {user.username === username && "(Vous)"}
+                  <span className="truncate max-w-[120px]">
+                    {user.username} {user.username === username && "(Vous)"}
+                  </span>
                 </div>
-                {user.username !== username && user.peerId && (
-                  <button 
-                    onClick={() => startCall(user.peerId)}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-800 rounded transition-all"
-                  >
-                    <Video className="w-4 h-4 text-zinc-300" />
-                  </button>
-                )}
+                <div className="flex items-center gap-1">
+                  {user.username !== username && !user.peerId && (
+                    <span className="text-[8px] text-zinc-600 animate-pulse">Liaison...</span>
+                  )}
+                  {user.username !== username && user.peerId && (
+                    <>
+                      <button 
+                        onClick={() => startCall(user.peerId, false)}
+                        title="Appel Audio"
+                        className="p-1 hover:bg-zinc-800 rounded transition-all text-zinc-400 hover:text-white"
+                      >
+                        <Phone className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => startCall(user.peerId, true)}
+                        title="Appel Vidéo"
+                        className="p-1 hover:bg-zinc-800 rounded transition-all text-zinc-400 hover:text-white"
+                      >
+                        <Video className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                  {isAdmin && user.agentId !== "KARIM-ADMIN" && (
+                    <button 
+                      onClick={() => deleteAgent(user.agentId)}
+                      title="Supprimer l'Agent"
+                      className="p-1 hover:bg-red-900/30 rounded transition-all text-zinc-500 hover:text-red-500"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="mt-auto flex items-center gap-3 p-3 bg-zinc-800/50 rounded-xl border border-zinc-800">
-          <div className="w-10 h-10 bg-zinc-700 rounded-full flex items-center justify-center">
-            <User className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-white">{username}</p>
-            <p className="text-xs text-zinc-500">ID: {agentId.slice(0, 8)}</p>
+        <div className="mt-auto flex flex-col gap-2">
+          <div className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-xl border border-zinc-800">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-zinc-700 rounded-full flex items-center justify-center">
+                <User className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-white">{username}</p>
+                <p className="text-xs text-zinc-500">ID: {agentId.slice(0, 8)}</p>
+              </div>
+            </div>
+            <button 
+              onClick={() => setShowSettings(true)}
+              className="p-2 hover:bg-zinc-700 rounded-lg transition-colors text-zinc-400 hover:text-white"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
           </div>
         </div>
       </div>
@@ -283,16 +358,9 @@ function App() {
             <h2 className="text-white font-semibold"># général</h2>
             <p className="text-xs text-zinc-500">Canal sécurisé crypté</p>
           </div>
-          <div className="flex gap-4">
-            <button className="p-2 hover:bg-zinc-800 rounded-full transition-colors">
-              <Phone className="w-5 h-5" />
-            </button>
-            <button 
-              onClick={() => setIsCalling(true)}
-              className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400 hover:text-white"
-            >
-              <Video className="w-5 h-5" />
-            </button>
+          <div className="flex items-center gap-2 bg-green-500/10 px-3 py-1 rounded-full border border-green-500/20">
+            <Shield className="w-3 h-3 text-green-500" />
+            <span className="text-[10px] text-green-500 font-bold uppercase tracking-widest">Liaison Sécurisée</span>
           </div>
         </div>
 
@@ -337,12 +405,85 @@ function App() {
               <video ref={myVideoRef} autoPlay muted className="rounded-3xl border-2 border-zinc-800 bg-zinc-900 w-full aspect-video object-cover" />
               <video ref={remoteVideoRef} autoPlay className="rounded-3xl border-2 border-zinc-500 bg-zinc-900 w-full aspect-video object-cover" />
            </div>
-           <button 
-             onClick={() => setIsCalling(false)}
-             className="mt-10 px-8 py-3 bg-red-600 text-white rounded-full font-bold hover:bg-red-700"
+            <button 
+             onClick={stopCall}
+             className="mt-10 px-8 py-3 bg-red-600 text-white rounded-full font-bold hover:bg-red-700 transition-colors"
            >
              Terminer l'appel
            </button>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-3 text-white">
+                <Settings className="w-5 h-5 text-zinc-400" />
+                <h2 className="text-xl font-bold tracking-tight">Paramètres du Terminal</h2>
+              </div>
+              <button 
+                onClick={() => setShowSettings(false)}
+                className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-500 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-8 flex flex-col gap-8">
+              {/* Profile Section */}
+              <div className="flex flex-col gap-4">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Identité de l'Agent</p>
+                <div className="flex items-center gap-4 bg-black p-4 rounded-2xl border border-zinc-800">
+                  <div className="w-12 h-12 bg-zinc-800 rounded-full flex items-center justify-center text-white">
+                    <User className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-white font-semibold">{username}</p>
+                    <p className="text-xs text-zinc-500">ID de Session: {agentId}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Preferences Section */}
+              <div className="flex flex-col gap-4">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Préférences Réseau</p>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between p-4 bg-zinc-800/30 rounded-xl border border-zinc-800">
+                    <div className="flex items-center gap-3">
+                      <Bell className="w-4 h-4 text-zinc-400" />
+                      <span className="text-sm text-zinc-300">Notifications Sonores</span>
+                    </div>
+                    <div className="w-10 h-5 bg-green-500 rounded-full relative cursor-pointer">
+                      <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full"></div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between p-4 bg-zinc-800/30 rounded-xl border border-zinc-800 opacity-50">
+                    <div className="flex items-center gap-3">
+                      <Moon className="w-4 h-4 text-zinc-400" />
+                      <span className="text-sm text-zinc-300">Mode Furtif (Dark)</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter">Toujours Actif</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Danger Zone */}
+              <div className="flex flex-col gap-4 mt-4">
+                <button 
+                  onClick={() => window.location.reload()}
+                  className="w-full flex items-center justify-center gap-2 py-4 bg-red-600/10 text-red-500 border border-red-600/20 rounded-xl hover:bg-red-600 hover:text-white transition-all font-bold"
+                >
+                  <LogOut className="w-5 h-5" />
+                  Terminer la Session
+                </button>
+                <p className="text-center text-[10px] text-zinc-600 uppercase tracking-tighter">
+                  La déconnexion réinitialisera votre accès temporaire.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
